@@ -175,11 +175,34 @@ def get_neighbors(ingredient: str, k: int = 30) -> list[tuple[str, float]]:
     return results
 
 def substitute(ingredient: str, available: set, forbidden: set, k: int = 50):
-    nb = get_neighbors(ingredient, k)
-    for name, sim in nb:
+    # Fast path: search top-k
+    nb_display = get_neighbors(ingredient, k)
+    for name, sim in nb_display:
         if name in available and name not in forbidden:
-            return {"result": name, "sim": round(sim, 3), "constrained": True}, nb
-    return {"result": nb[0][0], "sim": round(nb[0][1], 3), "constrained": False}, nb
+            return {"result": name, "sim": round(sim, 3), "constrained": True, "rank": None}, nb_display
+
+    # Full scan: find the best pantry item regardless of rank
+    if available:
+        idx = vocab[ingredient]
+        mat = matrices["epicure-chem"]
+        sims = mat @ mat[idx]
+        ranked = np.argsort(sims)[::-1]
+        rank = 0
+        for i in ranked:
+            if i == idx: continue
+            rank += 1
+            name = idx_to_name[i]
+            if name in available and name not in forbidden:
+                return {
+                    "result": name,
+                    "sim": round(float(sims[i]), 3),
+                    "constrained": False,
+                    "rank": rank,
+                }, nb_display
+
+    # Nothing in pantry at all — return unconstrained top-1
+    name, sim = nb_display[0]
+    return {"result": name, "sim": round(sim, 3), "constrained": False, "rank": None}, nb_display
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
@@ -236,17 +259,22 @@ if run and ing_raw:
         res_col, nb_col = st.columns([1, 2.2])
 
         with res_col:
-            constrained_html = (
-                '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#6a8f5a;margin-top:12px">✓ constrained</div>'
-                if result["constrained"] else
-                '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a05050;margin-top:12px">✗ fallback — no pantry match</div>'
-            )
+            if result["constrained"]:
+                status_html = '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#6a8f5a;margin-top:12px">✓ in pantry</div>'
+                border_color = "#c8892a"
+            elif result["rank"] is not None:
+                status_html = f'<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#c8892a;margin-top:12px">⚠ nearest pantry match — ranked #{result["rank"]} overall</div>'
+                border_color = "#7a5a1a"
+            else:
+                status_html = '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a05050;margin-top:12px">✗ no pantry match — best overall</div>'
+                border_color = "#5a2a2a"
+
             st.markdown(f"""
-            <div style="background:#111109;border:1px solid #2a2a20;border-left:3px solid #c8892a;padding:20px;height:100%">
+            <div style="background:#111109;border:1px solid #2a2a20;border-left:3px solid {border_color};padding:20px;height:100%">
               <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#c8892a">Best substitute</div>
               <div style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:600;color:#f0e6c8;margin:10px 0 6px;line-height:1.1">{result['result']}</div>
               <div style="font-size:11px;color:#5a5a40">sim <span style="color:#c8892a">{result['sim']}</span></div>
-              {constrained_html}
+              {status_html}
             </div>
             """, unsafe_allow_html=True)
 
