@@ -204,6 +204,23 @@ def substitute(ingredient: str, available: set, forbidden: set, k: int = 50):
     name, sim = nb_display[0]
     return {"result": name, "sim": round(sim, 3), "constrained": False, "rank": None}, nb_display
 
+# ── Pantry persistence ────────────────────────────────────────────────────────
+PANTRY_FILE = Path("scratch/pantry.json")
+
+def load_pantry() -> str:
+    if PANTRY_FILE.exists():
+        try:
+            return json.loads(PANTRY_FILE.read_text()).get("pantry", "")
+        except Exception:
+            return ""
+    return ""
+
+def save_pantry(text: str):
+    PANTRY_FILE.write_text(json.dumps({"pantry": text}))
+
+if "pantry" not in st.session_state:
+    st.session_state["pantry"] = load_pantry()
+
 # ── Inputs ────────────────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
 
@@ -233,11 +250,20 @@ with col2:
 
 pantry_raw = st.text_area(
     "Pantry",
+    value=st.session_state["pantry"],
     placeholder="e.g. miso, gochujang, fish_sauce, tamarind, rice_vinegar",
     height=80,
-    help="Comma-separated list of ingredients you actually have. The engine returns the closest flavor match from this list. If nothing in your pantry qualifies, it falls back to the best overall Chem neighbor (marked as fallback).",
+    key="pantry_input",
+    help="Comma-separated list of ingredients you actually have. Saved automatically between runs.",
 )
-st.caption("Comma-separated list of what you have. The engine picks the closest flavor match from here. Out-of-vocab tokens are silently skipped — the vocab check on the ingredient field shows you what's recognized.")
+
+saved_indicator = ""
+if pantry_raw != st.session_state["pantry"]:
+    st.session_state["pantry"] = pantry_raw
+    save_pantry(pantry_raw)
+    saved_indicator = " · saved"
+
+st.caption(f"Comma-separated. Persists across restarts{saved_indicator}. Out-of-vocab tokens are silently skipped.")
 
 run = st.button("Find substitute →")
 
