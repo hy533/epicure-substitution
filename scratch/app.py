@@ -214,6 +214,14 @@ with col1:
         help="The ingredient you want to substitute. Use underscores for spaces (fish_sauce, not fish sauce). Spaces also work — the engine normalizes automatically. Common aliases like soy_sauce → light_soy_sauce are applied for you.",
     )
     st.caption("The ingredient you're out of or want to replace.")
+    if ing_raw:
+        canon, status = check(ing_raw)
+        if status == "exact":
+            st.markdown(f'<div style="font-size:10px;color:#6a8f5a;letter-spacing:1px;margin:-8px 0 4px">✓ exact match → <code style="background:none;color:#6a8f5a">{canon}</code></div>', unsafe_allow_html=True)
+        elif status == "alias":
+            st.markdown(f'<div style="font-size:10px;color:#c8892a;letter-spacing:1px;margin:-8px 0 4px">~ normalized → <code style="background:none;color:#c8892a">{canon}</code></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div style="font-size:10px;color:#a05050;letter-spacing:1px;margin:-8px 0 4px">✗ {status}</div>', unsafe_allow_html=True)
 
 with col2:
     forbidden_raw = st.text_input(
@@ -230,16 +238,6 @@ pantry_raw = st.text_area(
     help="Comma-separated list of ingredients you actually have. The engine returns the closest flavor match from this list. If nothing in your pantry qualifies, it falls back to the best overall Chem neighbor (marked as fallback).",
 )
 st.caption("Comma-separated list of what you have. The engine picks the closest flavor match from here. Out-of-vocab tokens are silently skipped — the vocab check on the ingredient field shows you what's recognized.")
-
-# Vocab status line
-if ing_raw:
-    canon, status = check(ing_raw)
-    if status == "exact":
-        st.markdown(f'<div style="font-size:10px;color:#6a8f5a;letter-spacing:1px;margin:-12px 0 12px">✓ exact match → <code style="background:none;color:#6a8f5a">{canon}</code></div>', unsafe_allow_html=True)
-    elif status == "alias":
-        st.markdown(f'<div style="font-size:10px;color:#c8892a;letter-spacing:1px;margin:-12px 0 12px">~ normalized → <code style="background:none;color:#c8892a">{canon}</code></div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div style="font-size:10px;color:#a05050;letter-spacing:1px;margin:-12px 0 12px">✗ {status}</div>', unsafe_allow_html=True)
 
 run = st.button("Find substitute →")
 
