@@ -232,120 +232,50 @@ def save_pantry(text: str):
 if "pantry" not in st.session_state:
     st.session_state["pantry"] = load_pantry()
 
-# ── Inputs ────────────────────────────────────────────────────────────────────
-col1, col2 = st.columns(2)
+# ── Shared UI helpers ─────────────────────────────────────────────────────────
+import streamlit.components.v1 as components
 
-with col1:
-    ing_raw = st.text_input(
-        "Ingredient",
-        placeholder="e.g. doubanjiang",
-        help="The ingredient you want to substitute. Use underscores for spaces (fish_sauce, not fish sauce). Spaces also work — the engine normalizes automatically. Common aliases like soy_sauce → light_soy_sauce are applied for you.",
-    )
-    st.caption("The ingredient you're out of or want to replace.")
-    if ing_raw:
-        canon, status = check(ing_raw)
-        if status == "exact":
-            st.markdown(f'<div style="font-size:10px;color:#6a8f5a;letter-spacing:1px;margin:-8px 0 4px">✓ exact match → <code style="background:none;color:#6a8f5a">{canon}</code></div>', unsafe_allow_html=True)
-        elif status == "alias":
-            st.markdown(f'<div style="font-size:10px;color:#c8892a;letter-spacing:1px;margin:-8px 0 4px">~ normalized → <code style="background:none;color:#c8892a">{canon}</code></div>', unsafe_allow_html=True)
+LABELS     = ["Best substitute", "2nd choice", "3rd choice"]
+FONT_SIZES = ["28px", "22px", "18px"]
+
+def render_result_cards(results, col=None, label_offset=0):
+    ctx = col if col else st
+    for i, result in enumerate(results):
+        li = label_offset + i
+        if result["constrained"]:
+            status_html  = '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#6a8f5a;margin-top:8px">✓ in pantry</div>'
+            border_color = "#c8892a"
+        elif result["rank"] is not None:
+            status_html  = f'<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#c8892a;margin-top:8px">⚠ rank #{result["rank"]}</div>'
+            border_color = "#7a5a1a"
         else:
-            st.markdown(f'<div style="font-size:10px;color:#a05050;letter-spacing:1px;margin:-8px 0 4px">✗ {status}</div>', unsafe_allow_html=True)
+            status_html  = '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a05050;margin-top:8px">✗ not in pantry</div>'
+            border_color = "#3a3a2a" if li > 0 else "#5a2a2a"
 
-with col2:
-    forbidden_raw = st.text_input(
-        "Forbidden / allergens",
-        placeholder="e.g. soybean_paste, fermented_black_bean",
-        help="Comma-separated list of ingredients to exclude from results — allergens, dietary restrictions, or things you simply don't want. Leave blank if you have no restrictions.",
-    )
-    st.caption("Comma-separated. Leave blank if none. These are excluded even if they're in your pantry.")
+        margin = "0 0 8px 0" if i < len(results) - 1 else "0"
+        ctx.markdown(f"""
+        <div style="background:#111109;border:1px solid #2a2a20;border-left:3px solid {border_color};padding:16px;margin:{margin}">
+          <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#5a5a40">{LABELS[li]}</div>
+          <div style="font-family:'Cormorant Garamond',serif;font-size:{FONT_SIZES[li]};font-weight:600;color:#f0e6c8;margin:6px 0 4px;line-height:1.1">{result['result']}</div>
+          <div style="font-size:11px;color:#5a5a40">sim <span style="color:#c8892a">{result['sim']}</span></div>
+          {status_html}
+        </div>
+        """, unsafe_allow_html=True)
 
-pantry_raw = st.text_area(
-    "Pantry",
-    value=st.session_state["pantry"],
-    placeholder="e.g. miso, gochujang, fish_sauce, tamarind, rice_vinegar",
-    height=80,
-    key="pantry_input",
-    help="Comma-separated list of ingredients you actually have. Saved automatically between runs.",
-)
+def render_neighbor_panel(neighbors, pantry_tokens, forbidden_tokens):
+    rows_html = ""
+    for name, sim in neighbors:
+        in_pantry    = name in pantry_tokens
+        is_forbidden = name in forbidden_tokens
+        if is_forbidden:
+            tag, name_class, sim_class = '<span class="tag tag-forbidden">forbidden</span>', "nb-name forbidden", "nb-sim dim"
+        elif in_pantry:
+            tag, name_class, sim_class = '<span class="tag tag-pantry">pantry</span>', "nb-name pantry", "nb-sim green"
+        else:
+            tag, name_class, sim_class = '<span class="tag-spacer"></span>', "nb-name", "nb-sim"
+        rows_html += f'<div class="nb-row">{tag}<span class="{name_class}">{name}</span><span class="{sim_class}">{sim:.3f}</span></div>'
 
-saved_indicator = ""
-if pantry_raw != st.session_state["pantry"]:
-    st.session_state["pantry"] = pantry_raw
-    save_pantry(pantry_raw)
-    saved_indicator = " · saved"
-
-st.caption(f"Comma-separated. Persists across restarts{saved_indicator}. Out-of-vocab tokens are silently skipped.")
-
-run = st.button("Find substitute →")
-
-# ── Results ───────────────────────────────────────────────────────────────────
-if run and ing_raw:
-    canon, status = check(ing_raw)
-
-    if canon is None:
-        st.markdown(f'<div style="color:#a05050;font-size:12px;padding:16px;border:1px solid #2e1414">✗ {ing_raw!r} not in vocab. {status}</div>', unsafe_allow_html=True)
-    else:
-        pantry_tokens   = {normalize(t) for t in parse_list(pantry_raw) if check(t)[0]}
-        forbidden_tokens = {normalize(t) for t in parse_list(forbidden_raw) if check(t)[0]}
-
-        results, neighbors = substitute(canon, pantry_tokens, forbidden_tokens)
-
-        st.markdown("<hr>", unsafe_allow_html=True)
-        res_col, nb_col = st.columns([1, 2.2])
-
-        with res_col:
-            labels = ["Best substitute", "2nd choice", "3rd choice"]
-            font_sizes = ["28px", "22px", "18px"]
-            for i, result in enumerate(results):
-                if result["constrained"]:
-                    status_html = '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#6a8f5a;margin-top:8px">✓ in pantry</div>'
-                    border_color = "#c8892a"
-                elif result["rank"] is not None:
-                    status_html = f'<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#c8892a;margin-top:8px">⚠ pantry match — rank #{result["rank"]}</div>'
-                    border_color = "#7a5a1a"
-                else:
-                    status_html = '<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a05050;margin-top:8px">✗ not in pantry</div>'
-                    border_color = "#3a3a2a" if i > 0 else "#5a2a2a"
-
-                margin = "0 0 8px 0" if i < len(results) - 1 else "0"
-                st.markdown(f"""
-                <div style="background:#111109;border:1px solid #2a2a20;border-left:3px solid {border_color};padding:16px;margin:{margin}">
-                  <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#5a5a40">{labels[i]}</div>
-                  <div style="font-family:'Cormorant Garamond',serif;font-size:{font_sizes[i]};font-weight:600;color:#f0e6c8;margin:6px 0 4px;line-height:1.1">{result['result']}</div>
-                  <div style="font-size:11px;color:#5a5a40">sim <span style="color:#c8892a">{result['sim']}</span></div>
-                  {status_html}
-                </div>
-                """, unsafe_allow_html=True)
-
-        with nb_col:
-            import streamlit.components.v1 as components
-
-            rows_html = ""
-            for name, sim in neighbors:
-                in_pantry    = name in pantry_tokens
-                is_forbidden = name in forbidden_tokens
-                if is_forbidden:
-                    tag        = '<span class="tag tag-forbidden">forbidden</span>'
-                    name_class = "nb-name forbidden"
-                    sim_class  = "nb-sim dim"
-                elif in_pantry:
-                    tag        = '<span class="tag tag-pantry">pantry</span>'
-                    name_class = "nb-name pantry"
-                    sim_class  = "nb-sim green"
-                else:
-                    tag        = '<span class="tag-spacer"></span>'
-                    name_class = "nb-name"
-                    sim_class  = "nb-sim"
-
-                rows_html += (
-                    f'<div class="nb-row">'
-                    f'{tag}'
-                    f'<span class="{name_class}">{name}</span>'
-                    f'<span class="{sim_class}">{sim:.3f}</span>'
-                    f'</div>'
-                )
-
-            panel_html = f"""<!DOCTYPE html><html><head>
+    panel_html = f"""<!DOCTYPE html><html><head>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   body {{ margin:0; background:#111109; font-family:'IBM Plex Mono',monospace; color:#d4c9a8; }}
@@ -369,5 +299,104 @@ if run and ing_raw:
   <div class="header">Chem neighbors — top {len(neighbors)}</div>
   {rows_html}
 </body></html>"""
+    components.html(panel_html, height=min(30 * len(neighbors) + 60, 700), scrolling=True)
 
-            components.html(panel_html, height=min(30 * len(neighbors) + 60, 700), scrolling=True)
+# ── Shared: pantry & forbidden ────────────────────────────────────────────────
+col_f, col_p = st.columns([1, 2])
+
+with col_f:
+    forbidden_raw = st.text_input(
+        "Forbidden / allergens",
+        placeholder="e.g. soybean_paste, fermented_black_bean",
+        help="Comma-separated. Excluded even if they're in your pantry.",
+    )
+    st.caption("Comma-separated. Leave blank if none.")
+
+with col_p:
+    pantry_raw = st.text_area(
+        "Pantry",
+        value=st.session_state["pantry"],
+        placeholder="e.g. miso, gochujang, fish_sauce, tamarind, rice_vinegar",
+        height=80,
+        key="pantry_input",
+        help="Comma-separated. Saved automatically. Used in both Single and Batch modes.",
+    )
+    saved_indicator = ""
+    if pantry_raw != st.session_state["pantry"]:
+        st.session_state["pantry"] = pantry_raw
+        save_pantry(pantry_raw)
+        saved_indicator = " · saved"
+    st.caption(f"Comma-separated. Persists across restarts{saved_indicator}.")
+
+pantry_tokens   = {normalize(t) for t in parse_list(pantry_raw) if check(t)[0]}
+forbidden_tokens = {normalize(t) for t in parse_list(forbidden_raw) if check(t)[0]}
+
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab_single, tab_batch = st.tabs(["Single", "Batch"])
+
+# ── Single tab ────────────────────────────────────────────────────────────────
+with tab_single:
+    ing_raw = st.text_input(
+        "Ingredient",
+        placeholder="e.g. doubanjiang",
+        help="The ingredient you want to substitute. Spaces and underscores both work.",
+    )
+    st.caption("The ingredient you're out of or want to replace.")
+    if ing_raw:
+        canon, status = check(ing_raw)
+        if status == "exact":
+            st.markdown(f'<div style="font-size:10px;color:#6a8f5a;letter-spacing:1px;margin:-8px 0 4px">✓ exact match → <code style="background:none;color:#6a8f5a">{canon}</code></div>', unsafe_allow_html=True)
+        elif status == "alias":
+            st.markdown(f'<div style="font-size:10px;color:#c8892a;letter-spacing:1px;margin:-8px 0 4px">~ normalized → <code style="background:none;color:#c8892a">{canon}</code></div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div style="font-size:10px;color:#a05050;letter-spacing:1px;margin:-8px 0 4px">✗ {status}</div>', unsafe_allow_html=True)
+
+    run = st.button("Find substitute →", key="run_single")
+
+    if run and ing_raw:
+        canon, status = check(ing_raw)
+        if canon is None:
+            st.markdown(f'<div style="color:#a05050;font-size:12px;padding:16px;border:1px solid #2e1414">✗ {ing_raw!r} not in vocab. {status}</div>', unsafe_allow_html=True)
+        else:
+            results, neighbors = substitute(canon, pantry_tokens, forbidden_tokens)
+            st.markdown("<hr>", unsafe_allow_html=True)
+            res_col, nb_col = st.columns([1, 2.2])
+            with res_col:
+                render_result_cards(results)
+            with nb_col:
+                render_neighbor_panel(neighbors, pantry_tokens, forbidden_tokens)
+
+# ── Batch tab ─────────────────────────────────────────────────────────────────
+with tab_batch:
+    batch_raw = st.text_area(
+        "Ingredients to substitute",
+        placeholder="doubanjiang\nsichuan_peppercorn\nmiso\nfish_sauce",
+        height=160,
+        help="One ingredient per line. Each gets top-3 substitutes from your pantry.",
+    )
+    st.caption("One ingredient per line. Runs the same substitution engine as Single mode.")
+
+    run_batch = st.button("Find substitutes →", key="run_batch")
+
+    if run_batch and batch_raw:
+        ingredients = [l.strip() for l in batch_raw.splitlines() if l.strip()]
+        for ing in ingredients:
+            canon, status = check(ing)
+            st.markdown(f"""
+            <div style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:600;
+                        color:#f0e6c8;border-bottom:1px solid #2a2a20;padding-bottom:6px;margin:24px 0 12px">
+              {ing}
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:400;
+                           color:#5a5a40;margin-left:10px">
+                {'→ ' + canon if canon and canon != ing else ('✗ not in vocab' if not canon else '')}
+              </span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if canon is None:
+                st.markdown(f'<div style="color:#a05050;font-size:12px;margin-bottom:8px">✗ {ing!r} not in vocab — {status}</div>', unsafe_allow_html=True)
+            else:
+                results, _ = substitute(canon, pantry_tokens, forbidden_tokens)
+                c1, c2, c3 = st.columns(3)
+                for j, (col, result) in enumerate(zip([c1, c2, c3], results)):
+                    render_result_cards([result], col=col, label_offset=j)
