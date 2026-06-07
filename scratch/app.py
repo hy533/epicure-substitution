@@ -229,8 +229,10 @@ def load_pantry() -> str:
 def save_pantry(text: str):
     PANTRY_FILE.write_text(json.dumps({"pantry": text}))
 
-if "pantry" not in st.session_state:
-    st.session_state["pantry"] = load_pantry()
+if "pantry_input" not in st.session_state:
+    st.session_state["pantry_input"] = load_pantry()
+if "pantry_saved" not in st.session_state:
+    st.session_state["pantry_saved"] = st.session_state["pantry_input"]
 
 # ── Shared UI helpers ─────────────────────────────────────────────────────────
 import streamlit.components.v1 as components
@@ -315,15 +317,14 @@ with col_f:
 with col_p:
     pantry_raw = st.text_area(
         "Pantry",
-        value=st.session_state["pantry"],
         placeholder="e.g. miso, gochujang, fish_sauce, tamarind, rice_vinegar",
         height=80,
         key="pantry_input",
         help="Comma-separated. Saved automatically. Used in both Single and Batch modes.",
     )
     saved_indicator = ""
-    if pantry_raw != st.session_state["pantry"]:
-        st.session_state["pantry"] = pantry_raw
+    if pantry_raw != st.session_state["pantry_saved"]:
+        st.session_state["pantry_saved"] = pantry_raw
         save_pantry(pantry_raw)
         saved_indicator = " · saved"
     st.caption(f"Comma-separated. Persists across restarts{saved_indicator}.")
